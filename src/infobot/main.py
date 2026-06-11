@@ -7,7 +7,7 @@ from collections import Counter
 from dotenv import load_dotenv
 
 from . import config as config_mod
-from . import fetchers, summarize
+from . import fetchers, post, summarize
 from .store import Store
 
 
@@ -41,12 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     if not (args.no_llm or not cfg.llm.enabled):
         new_items = summarize.enrich(new_items, cfg)
 
-    # Milestone 4 adds posting here. Until then every run prints the new
-    # items, regardless of --dry-run.
-    for item in new_items:
-        print(f"[{item.category}] {item.title!r} ({item.source}) {item.url}")
-        if item.summary:
-            print(f"    {item.summary}")
+    posted = post.post_all(new_items, cfg, dry_run=args.dry_run)
+    if not args.dry_run:
+        store.mark_posted(posted)
+        print(f"posted {len(posted)} of {len(new_items)} new item(s)")
 
     store.close()
     return 0
