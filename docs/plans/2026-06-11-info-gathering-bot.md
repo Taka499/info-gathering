@@ -13,7 +13,7 @@ Concretely, when everything is done the owner can:
 1. Run `uv run python -m infobot --dry-run` locally and see a list of items found since the last run, each with a category and a 2–3 sentence summary, printed to the terminal instead of posted.
 2. Run `uv run python -m infobot` and watch those same items appear as messages in the configured Discord channels (e.g. `#ai-papers`, `#ai-news`, `#tech-news`). Slack channels join later by adding webhook env vars — no code change.
 3. Run it a second time immediately and see *nothing* posted, because every item is remembered in a SQLite database and never posted twice.
-4. Push the repo to GitHub, add secrets, and have the whole cycle repeat automatically every 2 hours via GitHub Actions, with the seen-items database committed back to the repo after each run so state survives between runs.
+4. Push the code to a **public** GitHub repo (`Taka499/info-gathering`) and the seen-items database plus the cron workflow to a small **private** repo (`Taka499/info-gathering-state`); the private repo's Action runs every 2 hours, checks out the public code, runs the bot, and commits `seen.db` back to itself — so the code is public while the reading history, run logs, and secrets stay private.
 
 ## Progress
 
@@ -57,9 +57,13 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
   Rationale: Owner direction (2026-06-11): "the first run we will only use Discord as target."
   Date/Author: 2026-06-11 / owner.
 
-- Decision: GitHub Actions cron (every 2 hours) as the runtime; the SQLite seen-items database is committed back to the repository after each run.
+- Decision: GitHub Actions cron (every 2 hours) as the runtime; the SQLite seen-items database is committed back to a git repository after each run.
   Rationale: Zero infrastructure and free. `actions/cache` can be evicted, which would cause mass re-posting; committing the small binary DB back is ugly in diffs but durable, and only the bot ever writes it so conflicts cannot occur (enforced with a workflow `concurrency` group).
   Date/Author: 2026-06-11 / owner (hosting) + agent (state strategy).
+
+- Decision: **Two-repository split — public code, private state.** The code lives in public `Taka499/info-gathering` with `state/` untracked and only a non-executing `.github/workflows/run.yml.sample`. The live workflow, the Actions secrets, and `seen.db` live in private `Taka499/info-gathering-state`; its scheduled job checks out itself (state at root) plus the public code repo (under `code/`), runs `uv run python -m infobot --db "$GITHUB_WORKSPACE/seen.db"` from `code/`, and commits `seen.db` back to itself. Because today's code-repo history already contained `seen.db` blobs, that history is purged of `state/` before publishing.
+  Rationale: Owner direction (2026-06-11): "keep the seen-item history and bot activity private, while make source code public." Running the cron in the private repo (instead of merely keeping state there) also keeps Actions run logs and schedule private — on public repos, workflow logs are publicly visible. Owner additionally asked to keep a sample workflow file in the public repo for reference (`run.yml.sample`; the `.sample` suffix prevents Actions from executing it).
+  Date/Author: 2026-06-11 / owner.
 
 - Decision: Summarizer model defaults to `claude-opus-4-8`, configurable via `sources.yaml` (`llm.model`).
   Rationale: Current Anthropic guidance is to default to the latest Opus and let the *owner* decide any cost downgrade. Volume here is modest (tens of items per run, batched), but if cost matters the owner can set `model: claude-haiku-4-5` in config — classification/short-summary is a task Haiku handles well. This is surfaced to the owner rather than silently decided.
@@ -267,47 +271,14 @@ Slack: POST `{"text": digest}` where digest is mrkdwn lines `*<{url}|{title}>* (
 
 `--dry-run` prints exactly what would be posted (category, platform, rendered text) and skips both the POSTs and `mark_posted`, so a dry run is repeatable. Only after a successful post on at least one platform is the item marked posted.
 
-### Milestone 5 — GitHub Actions cron
+### Milestone 5 — GitHub Actions cron (two-repository layout)
 
-`.github/workflows/run.yml`:
+Two repositories (see Decision Log):
 
-    name: infobot
-    on:
-      schedule:
-        - cron: "17 */2 * * *"   # every 2 hours; off-the-hour to dodge GH's cron rush
-      workflow_dispatch: {}
-    concurrency:
-      group: infobot-run
-      cancel-in-progress: false
-    permissions:
-      contents: write
-    jobs:
-      run:
-        runs-on: ubuntu-latest
-        steps:
-          - uses: actions/checkout@v4
-          - uses: astral-sh/setup-uv@v5
-          - run: uv sync --frozen
-          - run: uv run python -m infobot
-            env:
-              ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-              DISCORD_WEBHOOK_AI_PAPERS: ${{ secrets.DISCORD_WEBHOOK_AI_PAPERS }}
-              DISCORD_WEBHOOK_AI_NEWS: ${{ secrets.DISCORD_WEBHOOK_AI_NEWS }}
-              DISCORD_WEBHOOK_TECH_NEWS: ${{ secrets.DISCORD_WEBHOOK_TECH_NEWS }}
-              # Slack is off at launch. To enable later: create Slack webhooks,
-              # add the secrets, and uncomment — no code changes needed.
-              # SLACK_WEBHOOK_AI_PAPERS: ${{ secrets.SLACK_WEBHOOK_AI_PAPERS }}
-              # SLACK_WEBHOOK_AI_NEWS: ${{ secrets.SLACK_WEBHOOK_AI_NEWS }}
-              # SLACK_WEBHOOK_TECH_NEWS: ${{ secrets.SLACK_WEBHOOK_TECH_NEWS }}
-          - name: Commit state
-            run: |
-              git config user.name "infobot"
-              git config user.email "infobot@users.noreply.github.com"
-              git add state/seen.db
-              git diff --cached --quiet || git commit -m "chore: update seen-items state"
-              git push
+1. **Public code repo** `Taka499/info-gathering` — everything in this working tree except `state/` (untracked) and the live workflow. `.github/workflows/run.yml.sample` documents the workflow without executing (Actions only runs `*.yml`/`*.yaml`). The code-repo git history must be purged of the previously committed `state/` blobs before the repo is made public (`git filter-branch --index-filter 'git rm -r --cached --ignore-unmatch state' -- --all`, since the repo is one day old and local-only).
+2. **Private state repo** `Taka499/info-gathering-state` — contains `seen.db` (seeded from the local DB), a short README, and the live `.github/workflows/run.yml`. Its content is exactly the public repo's `run.yml.sample` minus the sample header: cron `17 */2 * * *`, `workflow_dispatch`, `concurrency: infobot-run`, `permissions: contents: write`; checkout self (state at root) + `repository: Taka499/info-gathering` into `path: code`; `uv sync --frozen` and `uv run python -m infobot --db "$GITHUB_WORKSPACE/seen.db"` with `working-directory: code`; final step commits and pushes `seen.db` to the state repo itself.
 
-Note the cron job runs against the default branch — once the project is live, merge `develop` → `main` so the workflow and code are on `main`, and the state commits land there. Scheduled workflows on free GitHub are disabled after 60 days of repo inactivity; the state commits themselves count as activity, so this self-sustains.
+Secrets (`ANTHROPIC_API_KEY`, `DISCORD_WEBHOOK_*`) are configured on the **state** repo, where the workflow runs (`gh secret set -f .env -R Taka499/info-gathering-state`). The public checkout of the code repo needs no token. The cron checks out the code repo's default branch (`main`), so deploying code means merging `develop` → `main` and pushing. Scheduled workflows on free GitHub are disabled after 60 days of repo inactivity; the state commits land in the state repo and count as its activity, so the schedule self-sustains.
 
 ## Concrete Steps
 
@@ -342,12 +313,15 @@ Tests at every milestone:
 
 Webhook setup (owner, manual, once): Discord — channel → Edit Channel → Integrations → Webhooks → New Webhook → Copy URL, per channel. Export locally as the env var names above to test for real; add as repository secrets on GitHub for CI. Slack (deferred until the owner enables it): create a Slack app → Incoming Webhooks → Activate → Add New Webhook to Workspace per channel, then add the `SLACK_WEBHOOK_*` secrets and uncomment them in the workflow.
 
-Milestone 5 verification: push to GitHub, add the secrets, then trigger once by hand:
+Milestone 5 verification: create both repos, push, add the secrets to the state repo, then trigger once by hand:
 
-    gh workflow run infobot
-    gh run watch
+    gh repo create Taka499/info-gathering --public --source . --push        # after history purge, main + develop
+    gh repo create Taka499/info-gathering-state --private --source <state-dir> --push
+    gh secret set -f .env -R Taka499/info-gathering-state
+    gh workflow run infobot -R Taka499/info-gathering-state
+    gh run watch -R Taka499/info-gathering-state
 
-then confirm messages appeared in the channels and a `chore: update seen-items state` commit landed.
+then confirm messages appeared in the Discord channels and an `update seen-items state` commit landed in the state repo.
 
 ## Validation and Acceptance
 
@@ -357,11 +331,11 @@ Acceptance is behavioral, per milestone:
 2. After Milestone 2: HN items appear with the score threshold honored (HN only — Reddit's RSS path has no scores); Reddit items appear from the configured subreddits with external URLs, not comments-page URLs. Verified live 2026-06-11: 50 HN + 29 Reddit items on first run, zeros on re-run.
 3. After Milestone 3: with `ANTHROPIC_API_KEY` exported, `--dry-run` output shows 2–3 sentence summaries instead of raw excerpts, and at least occasionally a recategorized item (an AI story fetched by the HN source printed under `[ai-news]`). With the key unset and `--no-llm`, the run still completes.
 4. After Milestone 4: running without `--dry-run` makes the messages appear in the real Discord channels; an immediate re-run posts nothing. The Slack renderer is covered by unit tests only at this stage (no real Slack workspace is wired up); its live acceptance happens whenever Slack is enabled later.
-5. After Milestone 5: `gh workflow run infobot` completes green; channels receive messages; the state commit appears; the next scheduled run posts only newer items.
+5. After Milestone 5: `gh workflow run infobot -R Taka499/info-gathering-state` completes green; channels receive messages; the state commit appears in the state repo; the next scheduled run posts only newer items. The public repo shows no Actions activity and no `state/` directory anywhere in its history.
 
 ## Idempotence and Recovery
 
-Every stage is safe to re-run. `CREATE TABLE IF NOT EXISTS` makes store init idempotent; the primary-key dedup makes fetching idempotent; marking items seen at *filter* time means a crash mid-run can at worst **skip** items (acceptable) but never double-post. If the bot ever posts garbage, stop the cron (disable the workflow in the GitHub UI), fix, and re-enable — no cleanup needed beyond deleting bad messages by hand. If `state/seen.db` is lost or deleted, the next run re-posts whatever currently sits in the feeds (a one-time burst of roughly one feed-page per source, bounded by `max_results`/`max_items`), then converges; to avoid the burst after a state loss, run once locally with `--dry-run` (which records ids without posting) and commit the DB. The workflow's `concurrency` group prevents overlapping runs racing on the state push; if a push still fails because the owner pushed a commit mid-run, the workflow fails visibly and the next scheduled run simply re-fetches — no corruption.
+Every stage is safe to re-run. `CREATE TABLE IF NOT EXISTS` makes store init idempotent; the primary-key dedup makes fetching idempotent; marking items seen at *filter* time means a crash mid-run can at worst **skip** items (acceptable) but never double-post. If the bot ever posts garbage, stop the cron (disable the workflow in the GitHub UI), fix, and re-enable — no cleanup needed beyond deleting bad messages by hand. If the seen-items DB is lost or deleted, the next run re-posts whatever currently sits in the feeds (a one-time burst of roughly one feed-page per source, bounded by `max_results`/`max_items`), then converges; to avoid the burst after a state loss, run once locally with `--dry-run` (which records ids without posting) and push the resulting `seen.db` to the state repo. The workflow's `concurrency` group prevents overlapping runs racing on the state push; if a push still fails because the owner pushed a commit mid-run, the workflow fails visibly and the next scheduled run simply re-fetches — no corruption.
 
 ## Artifacts and Notes
 
@@ -408,5 +382,6 @@ Stable internal interfaces that must exist at the end (signatures the milestones
 Revision notes:
 
 - 2026-06-11: Initial version, written after the design conversation with the owner.
+- 2026-06-11: Restructured Milestone 5 into a two-repository layout (public code repo + private state repo holding `seen.db`, the live workflow, and the secrets), per owner direction that the source should be public while reading history and bot activity stay private. The owner also asked to keep a reference copy of the workflow in the public repo — added as non-executing `.github/workflows/run.yml.sample`. Updated Purpose item 4, Decision Log, the Milestone 5 section, Concrete Steps, and Validation item 5. The code repo's local history gets purged of `state/` blobs before publishing.
 - 2026-06-11: ExecPlans are now git-tracked — the owner removed `docs/plans/.gitignore` so plan files persist in history; updated the header note accordingly.
 - 2026-06-11: Scoped the initial rollout to Discord only, per owner direction ("the first run we will only use Discord as target"). The Slack code path is still built in Milestone 4 behind the same env-var-driven abstraction, but no Slack webhooks/secrets are configured at launch; the workflow's Slack env lines are commented out. Updated Purpose, Decision Log, Milestone 4, the workflow YAML, the webhook setup steps, and Validation item 4 accordingly. Also clarified in conversation (no plan change needed — already specified): the SQLite seen-items DB is hosted in the git repository itself as `state/seen.db`, committed back after each Actions run.
