@@ -1,0 +1,29 @@
+categories: [ai-papers, ai-news, tech-news]
+
+llm:
+  enabled: true
+  model: claude-opus-4-8     # set to claude-haiku-4-5 to cut cost
+  max_items_per_call: 15
+
+sources:
+  - kind: arxiv
+    category: ai-papers
+    queries: ["cat:cs.AI", "cat:cs.CL", "cat:cs.LG"]
+    max_results: 25
+  - kind: rss
+    category: ai-news
+    feeds:
+      - https://openai.com/blog/rss.xml
+      - https://huggingface.co/blog/feed.xml
+      - https://blog.google/technology/ai/rss/
+      - https://simonwillison.net/atom/everything/
+  - kind: hackernews
+    category: tech-news
+    min_score: 100
+    max_items: 100
+  - kind: reddit
+    category: tech-news
+    subreddits: [programming, technology]
+    min_score: 200
+    listing: top
+    timeframe: day
