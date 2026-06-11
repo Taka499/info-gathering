@@ -21,7 +21,7 @@ Use timestamps to measure rates of progress. Every stopping point must be docume
 
 - [x] (2026-06-11) Design settled with the owner: Python, both Discord and Slack via incoming webhooks (plain HTTP POST, no platform SDKs), sources = AI/LLM news & papers + HN/Reddit tech news, hosting = GitHub Actions cron, dedup via SQLite committed back to the repo.
 - [x] (2026-06-11) This ExecPlan written.
-- [ ] Milestone 1: repository scaffold, git init, config loader, SQLite store, RSS/arXiv fetcher, CLI that prints new items; second run prints nothing.
+- [x] (2026-06-11) Milestone 1: repository scaffold, git init (`main`/`develop`/`feature/scaffold`), config loader, SQLite store, RSS/arXiv fetcher, CLI that prints new items. Acceptance verified live: first run found 57 ai-papers + 1848 ai-news items; second run printed `[ai-papers] 0 new  [ai-news] 0 new  [tech-news] 0 new`. 7 pytest tests pass. `state/seen.db` seeded with 1905 rows and committed, so launch will not re-post the backlog.
 - [ ] Milestone 2: Hacker News and Reddit fetchers with score thresholds.
 - [ ] Milestone 3: Claude summarization + categorization with a `--no-llm` fallback.
 - [ ] Milestone 4: Discord and Slack webhook posting with `--dry-run`.
@@ -32,7 +32,11 @@ Use timestamps to measure rates of progress. Every stopping point must be docume
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during implementation, with concise evidence.
 
-- (none yet)
+- Observation: Some RSS feeds carry their entire archive, not just recent posts — `https://simonwillison.net/atom/everything/` alone returned ~1800 entries on the first fetch (log: `rss: fetched 1848 items` across four feeds). Unmitigated, adding any such feed later would flood the channels with its whole history.
+  Resolution: Added a per-feed entry cap in `fetchers/rss.py` (`max_entries_per_feed`, default 50, newest first, configurable per source). The first-run backlog was absorbed harmlessly into `state/seen.db` (1905 rows committed), so none of it will ever post.
+- Observation: Several configured feed URLs redirect (`openai.com/blog/rss.xml` → `/news/rss.xml`, arXiv `http` → `https`, blog.google moved paths). `follow_redirects=True` on the shared `httpx.Client` handles all of them; without it the bot would silently fetch nothing from those sources.
+  Evidence: httpx INFO logs show 301/307 responses followed by 200s on the redirected URLs.
+- Observation: arXiv cross-listing makes intra-batch dedup load-bearing, not just a safety net — 75 fetched papers across cs.AI/cs.CL/cs.LG collapsed to 57 unique because papers appear in multiple category queries with the same `arxiv:<id>`.
 
 ## Decision Log
 
@@ -68,7 +72,7 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
 
 To be written at the end of each milestone and at completion. Compare the result against the Purpose section.
 
-- (none yet)
+- Milestone 1 (2026-06-11): Achieved exactly what the Purpose's items 1 and 3 describe for the RSS/arXiv sources — a runnable `uv run python -m infobot --dry-run --no-llm` that prints categorized new items and prints zeros on an immediate re-run. Deviation from plan: added a `max_entries_per_feed` cap (not in the original design) after discovering archive-sized feeds; recorded in Surprises & Discoveries. Remaining toward the Purpose: HN/Reddit sources (M2), summaries (M3), actual posting (M4), and the cron (M5). Lesson: do a real network run early — both surprises (archive feeds, redirects) were invisible in fixture-based tests.
 
 ## Context and Orientation
 
