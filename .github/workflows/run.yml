@@ -1,0 +1,39 @@
+name: infobot
+
+on:
+  schedule:
+    - cron: "17 */2 * * *"   # every 2 hours; off-the-hour to dodge GH's cron rush
+  workflow_dispatch: {}
+
+concurrency:
+  group: infobot-run
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: uv run python -m infobot
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK_AI_PAPERS: ${{ secrets.DISCORD_WEBHOOK_AI_PAPERS }}
+          DISCORD_WEBHOOK_AI_NEWS: ${{ secrets.DISCORD_WEBHOOK_AI_NEWS }}
+          DISCORD_WEBHOOK_TECH_NEWS: ${{ secrets.DISCORD_WEBHOOK_TECH_NEWS }}
+          # Slack is off at launch. To enable later: create Slack webhooks,
+          # add the secrets, and uncomment -- no code changes needed.
+          # SLACK_WEBHOOK_AI_PAPERS: ${{ secrets.SLACK_WEBHOOK_AI_PAPERS }}
+          # SLACK_WEBHOOK_AI_NEWS: ${{ secrets.SLACK_WEBHOOK_AI_NEWS }}
+          # SLACK_WEBHOOK_TECH_NEWS: ${{ secrets.SLACK_WEBHOOK_TECH_NEWS }}
+      - name: Commit state
+        run: |
+          git config user.name "infobot"
+          git config user.email "infobot@users.noreply.github.com"
+          git add state/seen.db
+          git diff --cached --quiet || git commit -m "chore: update seen-items state"
+          git push
