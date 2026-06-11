@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>top scoring links : programming</title>
+  <entry>
+    <id>t3_abc123</id>
+    <title>External post</title>
+    <link href="https://www.reddit.com/r/programming/comments/abc123/external_post/"/>
+    <updated>2026-06-10T12:00:00+00:00</updated>
+    <content type="html">&lt;span&gt;&lt;a href="https://example.com/article?a=1&amp;amp;b=2"&gt;[link]&lt;/a&gt;&lt;/span&gt; &lt;span&gt;&lt;a href="https://www.reddit.com/r/programming/comments/abc123/external_post/"&gt;[comments]&lt;/a&gt;&lt;/span&gt;</content>
+  </entry>
+  <entry>
+    <id>t3_def456</id>
+    <title>Self post</title>
+    <link href="https://www.reddit.com/r/programming/comments/def456/self_post/"/>
+    <updated>2026-06-10T13:00:00+00:00</updated>
+    <content type="html">&lt;span&gt;&lt;a href="https://www.reddit.com/r/programming/comments/def456/self_post/"&gt;[link]&lt;/a&gt;&lt;/span&gt; &lt;span&gt;&lt;a href="https://www.reddit.com/r/programming/comments/def456/self_post/"&gt;[comments]&lt;/a&gt;&lt;/span&gt;</content>
+  </entry>
+</feed>
