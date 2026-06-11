@@ -1,3 +1,11 @@
+# SAMPLE — this workflow does not run here.
+#
+# The live copy of this file runs in the private state repository
+# (info-gathering-state), which holds seen.db and the Actions secrets.
+# That split keeps the code public while keeping the bot's reading
+# history, run logs, and secrets private. To deploy changes to this
+# workflow, edit the copy in the state repository.
+
 name: infobot
 
 on:
@@ -16,10 +24,20 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
+      # The state repo itself: seen.db lives at its root.
       - uses: actions/checkout@v4
+      # The public code repo, nested under code/.
+      - uses: actions/checkout@v4
+        with:
+          repository: Taka499/info-gathering
+          path: code
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen
-      - run: uv run python -m infobot
+      - name: Install dependencies
+        run: uv sync --frozen
+        working-directory: code
+      - name: Run infobot
+        run: uv run python -m infobot --db "$GITHUB_WORKSPACE/seen.db"
+        working-directory: code
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DISCORD_WEBHOOK_AI_PAPERS: ${{ secrets.DISCORD_WEBHOOK_AI_PAPERS }}
@@ -34,6 +52,6 @@ jobs:
         run: |
           git config user.name "infobot"
           git config user.email "infobot@users.noreply.github.com"
-          git add state/seen.db
-          git diff --cached --quiet || git commit -m "chore: update seen-items state"
+          git add seen.db
+          git diff --cached --quiet || git commit -m "update seen-items state"
           git push
