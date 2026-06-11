@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
@@ -14,6 +15,12 @@ class Item:
     published: str = ""  # ISO 8601 UTC if known, else ""
     excerpt: str = ""    # raw feed summary / first paragraph, pre-LLM
     summary: str = ""    # filled by summarize.enrich()
+
+
+def epoch_to_iso(epoch: float | None) -> str:
+    if not epoch:
+        return ""
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def canonical_url(url: str) -> str:

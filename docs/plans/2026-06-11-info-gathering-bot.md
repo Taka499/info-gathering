@@ -22,7 +22,7 @@ Use timestamps to measure rates of progress. Every stopping point must be docume
 - [x] (2026-06-11) Design settled with the owner: Python, both Discord and Slack via incoming webhooks (plain HTTP POST, no platform SDKs), sources = AI/LLM news & papers + HN/Reddit tech news, hosting = GitHub Actions cron, dedup via SQLite committed back to the repo.
 - [x] (2026-06-11) This ExecPlan written.
 - [x] (2026-06-11) Milestone 1: repository scaffold, git init (`main`/`develop`/`feature/scaffold`), config loader, SQLite store, RSS/arXiv fetcher, CLI that prints new items. Acceptance verified live: first run found 57 ai-papers + 1848 ai-news items; second run printed `[ai-papers] 0 new  [ai-news] 0 new  [tech-news] 0 new`. 7 pytest tests pass. `state/seen.db` seeded with 1905 rows and committed, so launch will not re-post the backlog.
-- [ ] Milestone 2: Hacker News and Reddit fetchers with score thresholds.
+- [x] (2026-06-11) Milestone 2: Hacker News and Reddit fetchers. HN works as planned (Firebase API, score >= 100, 50 items found live). Reddit's JSON API turned out to be blocked for anonymous clients — rewrote the fetcher against Reddit's RSS endpoint instead (see Decision Log + Surprises). Live acceptance: 29 Reddit items fetched, immediate re-run printed all zeros. 11 pytest tests pass.
 - [ ] Milestone 3: Claude summarization + categorization with a `--no-llm` fallback.
 - [ ] Milestone 4: Discord and Slack webhook posting with `--dry-run`.
 - [ ] Milestone 5: GitHub Actions cron workflow with state commit-back; verified via manual `workflow_dispatch` run.
@@ -37,6 +37,9 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
 - Observation: Several configured feed URLs redirect (`openai.com/blog/rss.xml` → `/news/rss.xml`, arXiv `http` → `https`, blog.google moved paths). `follow_redirects=True` on the shared `httpx.Client` handles all of them; without it the bot would silently fetch nothing from those sources.
   Evidence: httpx INFO logs show 301/307 responses followed by 200s on the redirected URLs.
 - Observation: arXiv cross-listing makes intra-batch dedup load-bearing, not just a safety net — 75 fetched papers across cs.AI/cs.CL/cs.LG collapsed to 57 unique because papers appear in multiple category queries with the same `arxiv:<id>`.
+- Observation: Reddit's public JSON API (`/r/{sub}/top.json`) returns `403 Blocked` to anonymous clients regardless of User-Agent (tested: bot UA, descriptive `platform:app:version` UA, full browser UA, and `old.reddit.com` — all 403). The RSS endpoint of the same listing (`/r/{sub}/top/.rss?t=day`) returns 200.
+  Evidence: probe run 2026-06-11 — `www json, browser UA -> 403`, `www rss, infobot UA -> 200 application/atom+xml`.
+- Observation: Reddit RSS entry bodies HTML-escape hrefs, so naive extraction yields URLs containing literal `&amp;`. Fixed with `html.unescape()`; regression-tested via the fixture.
 
 ## Decision Log
 
@@ -64,6 +67,10 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
   Rationale: `CLAUDE.md` mandates Git-flow, small frequent commits, only affected files, no coding-agent attribution in commit messages.
   Date/Author: 2026-06-11 / repo convention.
 
+- Decision: Fetch Reddit via its RSS endpoint instead of the JSON API, dropping the `min_score` filter for Reddit (RSS carries no scores; the `top?t=day` listing itself is the quality filter, capped by `max_items_per_subreddit`).
+  Rationale: Reddit's JSON API returns `403 Blocked` to all anonymous clients (verified with multiple User-Agents); the alternative — registering a Reddit OAuth app — adds owner setup burden for little gain. The plan's `fetchers/reddit.py` description and `config/sources.yaml` shape changed accordingly.
+  Date/Author: 2026-06-11 / agent (forced by Reddit API behavior).
+
 - Decision: Source → default category mapping, with Claude allowed to override the category and to drop low-relevance items.
   Rationale: Most sources map cleanly (arXiv → `ai-papers`, HN/Reddit → `tech-news`, vendor blogs → `ai-news`); the LLM pass is for summaries, the occasional recategorization (e.g. an AI story on HN belongs in `ai-news`), and noise filtering — not for primary routing. This keeps the `--no-llm` path fully functional.
   Date/Author: 2026-06-11 / agent.
@@ -72,6 +79,7 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
 
 To be written at the end of each milestone and at completion. Compare the result against the Purpose section.
 
+- Milestone 2 (2026-06-11): All four source kinds now work end-to-end in the printing CLI. The one real deviation was Reddit: the planned JSON API path was dead on arrival (403 for anonymous clients), and the milestone's main work became the RSS-based rewrite — including extracting external URLs from HTML-escaped entry bodies. Score filtering survives only for HN; for Reddit, the curated `top?t=day` listing replaces it. Lesson repeated from M1: assumptions about third-party APIs only die on contact with the real service; the probe-first approach (test endpoints with a 10-line script before rewriting the fetcher) was cheap and decisive.
 - Milestone 1 (2026-06-11): Achieved exactly what the Purpose's items 1 and 3 describe for the RSS/arXiv sources — a runnable `uv run python -m infobot --dry-run --no-llm` that prints categorized new items and prints zeros on an immediate re-run. Deviation from plan: added a `max_entries_per_feed` cap (not in the original design) after discovering archive-sized feeds; recorded in Surprises & Discoveries. Remaining toward the Purpose: HN/Reddit sources (M2), summaries (M3), actual posting (M4), and the cron (M5). Lesson: do a real network run early — both surprises (archive feeds, redirects) were invisible in fixture-based tests.
 
 ## Context and Orientation
@@ -206,7 +214,7 @@ Tests (`uv run pytest`): `tests/test_store.py` (filter_new twice on the same ite
 
 `src/infobot/fetchers/hackernews.py`: GET `https://hacker-news.firebaseio.com/v0/topstories.json` (list of ~500 ids), take the first `max_items`, GET `https://hacker-news.firebaseio.com/v0/item/{id}.json` for each (use a single `httpx.Client` for connection reuse), keep stories with `score >= min_score` and a `url` field (skip Ask HN text posts), `id = f"hn:{id}"`. The per-item fetches are the slow part; ~100 sequential requests take ~20 s, which is acceptable in a cron job — do not add async machinery for this.
 
-`src/infobot/fetchers/reddit.py`: GET `https://www.reddit.com/r/{sub}/{listing}.json?t={timeframe}&limit=25` with a real `User-Agent` (Reddit returns 429 to default agents), keep posts with `score >= min_score`, skip self-posts and stickies, `id = f"reddit:{post['id']}"`, `url` = the external link.
+`src/infobot/fetchers/reddit.py` (revised after the 403 discovery — see Decision Log): GET `https://www.reddit.com/r/{sub}/{listing}/.rss?t={timeframe}` with a real `User-Agent`, parse with `feedparser`. Each entry's `link` is the comments page; the external URL is the HTML-escaped href of the `[link]` anchor in the entry body (`html.unescape` it). Skip entries whose `[link]` href equals the comments URL (self posts). `id = f"reddit:{entry.id}"` (e.g. `reddit:t3_abc123`). No score filtering is possible via RSS — the top-of-timeframe listing is the quality filter, capped by `max_items_per_subreddit` (default 25).
 
 Both fetchers log-and-continue on per-source HTTP errors. Tests use checked-in JSON fixtures and a stub transport (`httpx.MockTransport`), again no network.
 
@@ -338,7 +346,7 @@ then confirm messages appeared in the channels and a `chore: update seen-items s
 Acceptance is behavioral, per milestone:
 
 1. After Milestone 1: the two-consecutive-runs transcript above — first run prints items, second prints zeros across the board; `uv run pytest` passes; deleting `state/seen.db` and re-running prints items again (idempotent rebuild).
-2. After Milestone 2: HN and Reddit items appear with scores honored — temporarily set `min_score: 10000` in config and confirm those sources yield 0 items, then restore.
+2. After Milestone 2: HN items appear with the score threshold honored (HN only — Reddit's RSS path has no scores); Reddit items appear from the configured subreddits with external URLs, not comments-page URLs. Verified live 2026-06-11: 50 HN + 29 Reddit items on first run, zeros on re-run.
 3. After Milestone 3: with `ANTHROPIC_API_KEY` exported, `--dry-run` output shows 2–3 sentence summaries instead of raw excerpts, and at least occasionally a recategorized item (an AI story fetched by the HN source printed under `[ai-news]`). With the key unset and `--no-llm`, the run still completes.
 4. After Milestone 4: running without `--dry-run` makes the messages appear in the real Discord channels; an immediate re-run posts nothing. The Slack renderer is covered by unit tests only at this stage (no real Slack workspace is wired up); its live acceptance happens whenever Slack is enabled later.
 5. After Milestone 5: `gh workflow run infobot` completes green; channels receive messages; the state commit appears; the next scheduled run posts only newer items.
@@ -354,7 +362,7 @@ Key external endpoints, collected so no future session has to rediscover them:
     arXiv Atom API : http://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=25
     HN top stories : https://hacker-news.firebaseio.com/v0/topstories.json
     HN item        : https://hacker-news.firebaseio.com/v0/item/{id}.json
-    Reddit listing : https://www.reddit.com/r/{sub}/top.json?t=day&limit=25   (needs a custom User-Agent)
+    Reddit listing : https://www.reddit.com/r/{sub}/top/.rss?t=day   (RSS only; the .json API 403s anonymous clients)
     Discord webhook: POST {url} {"embeds": [...]}        (max 10 embeds/request, 30 req/min/webhook)
     Slack webhook  : POST {url} {"text": "..."}          (returns body "ok")
 

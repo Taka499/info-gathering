@@ -6,13 +6,15 @@ import httpx
 
 from ..config import Config
 from ..models import Item
-from . import rss
+from . import hackernews, reddit, rss
 
 log = logging.getLogger(__name__)
 
 _DISPATCH = {
     "rss": rss.fetch_rss,
     "arxiv": rss.fetch_arxiv,
+    "hackernews": hackernews.fetch_hackernews,
+    "reddit": reddit.fetch_reddit,
 }
 
 
