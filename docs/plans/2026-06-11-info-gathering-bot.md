@@ -23,7 +23,7 @@ Use timestamps to measure rates of progress. Every stopping point must be docume
 - [x] (2026-06-11) This ExecPlan written.
 - [x] (2026-06-11) Milestone 1: repository scaffold, git init (`main`/`develop`/`feature/scaffold`), config loader, SQLite store, RSS/arXiv fetcher, CLI that prints new items. Acceptance verified live: first run found 57 ai-papers + 1848 ai-news items; second run printed `[ai-papers] 0 new  [ai-news] 0 new  [tech-news] 0 new`. 7 pytest tests pass. `state/seen.db` seeded with 1905 rows and committed, so launch will not re-post the backlog.
 - [x] (2026-06-11) Milestone 2: Hacker News and Reddit fetchers. HN works as planned (Firebase API, score >= 100, 50 items found live). Reddit's JSON API turned out to be blocked for anonymous clients — rewrote the fetcher against Reddit's RSS endpoint instead (see Decision Log + Surprises). Live acceptance: 29 Reddit items fetched, immediate re-run printed all zeros. 11 pytest tests pass.
-- [ ] Milestone 3: Claude summarization + categorization with a `--no-llm` fallback.
+- [x] (2026-06-11) Milestone 3: Claude summarization + categorization with a `--no-llm` fallback. Live acceptance: `--dry-run` printed 4 new items each with a 2-3 sentence Claude summary (model `claude-opus-4-8` via `messages.parse`). Local secret handling added: `python-dotenv`, `.env` (gitignored). 15 pytest tests pass (incl. one live-API test, skipped without a key).
 - [ ] Milestone 4: Discord and Slack webhook posting with `--dry-run`.
 - [ ] Milestone 5: GitHub Actions cron workflow with state commit-back; verified via manual `workflow_dispatch` run.
 - [ ] Final: Outcomes & Retrospective written.
@@ -40,6 +40,8 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
 - Observation: Reddit's public JSON API (`/r/{sub}/top.json`) returns `403 Blocked` to anonymous clients regardless of User-Agent (tested: bot UA, descriptive `platform:app:version` UA, full browser UA, and `old.reddit.com` — all 403). The RSS endpoint of the same listing (`/r/{sub}/top/.rss?t=day`) returns 200.
   Evidence: probe run 2026-06-11 — `www json, browser UA -> 403`, `www rss, infobot UA -> 200 application/atom+xml`.
 - Observation: Reddit RSS entry bodies HTML-escape hrefs, so naive extraction yields URLs containing literal `&amp;`. Fixed with `html.unescape()`; regression-tested via the fixture.
+- Observation: `uv run --env-file .env` echoes the offending line verbatim when the env file fails to parse — which printed part of the API key into terminal output when `.env` initially held a bare key without `ANTHROPIC_API_KEY=`. python-dotenv's parse warnings, by contrast, name only the line number. Lesson: keep `.env` strictly `KEY=VALUE`, and prefer the app's own `load_dotenv()` path over `--env-file`.
+- Observation: httpx logs full request URLs at INFO level, and Discord/Slack webhook URLs embed their secret token in the URL path — a future CI-log leak once posting starts. Pre-empted in M3 by setting the `httpx` logger to WARNING in `main()`.
 
 ## Decision Log
 
@@ -71,6 +73,10 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
   Rationale: Reddit's JSON API returns `403 Blocked` to all anonymous clients (verified with multiple User-Agents); the alternative — registering a Reddit OAuth app — adds owner setup burden for little gain. The plan's `fetchers/reddit.py` description and `config/sources.yaml` shape changed accordingly.
   Date/Author: 2026-06-11 / agent (forced by Reddit API behavior).
 
+- Decision: Local secrets live in a gitignored `.env` file (format strictly `KEY=VALUE`), loaded by `python-dotenv` inside `main()`; CI provides the same variables as real env vars from GitHub Actions secrets, where `load_dotenv()` is a harmless no-op.
+  Rationale: Owner created `.env` and asked for dotenv support (2026-06-11); keeps local runs and CI symmetric with zero code branching.
+  Date/Author: 2026-06-11 / owner.
+
 - Decision: Source → default category mapping, with Claude allowed to override the category and to drop low-relevance items.
   Rationale: Most sources map cleanly (arXiv → `ai-papers`, HN/Reddit → `tech-news`, vendor blogs → `ai-news`); the LLM pass is for summaries, the occasional recategorization (e.g. an AI story on HN belongs in `ai-news`), and noise filtering — not for primary routing. This keeps the `--no-llm` path fully functional.
   Date/Author: 2026-06-11 / agent.
@@ -79,6 +85,7 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
 
 To be written at the end of each milestone and at completion. Compare the result against the Purpose section.
 
+- Milestone 3 (2026-06-11): The Purpose's item 1 is now fully real — `--dry-run` prints categorized items with Claude-written summaries. `messages.parse` + Pydantic worked exactly as planned (no JSON handling code at all); the milestone's surprises were all operational, not API-related: a malformed `.env` leaking a key fragment via uv's parse warning, and the discovery that httpx INFO logging would leak webhook URLs in M4 (pre-empted now). Summaries of excerpt-less items (HN/Reddit give titles only) are appropriately hedged ("likely explores...") per the system prompt's conservative-summarization instruction — acceptable, revisit only if the owner finds them weak.
 - Milestone 2 (2026-06-11): All four source kinds now work end-to-end in the printing CLI. The one real deviation was Reddit: the planned JSON API path was dead on arrival (403 for anonymous clients), and the milestone's main work became the RSS-based rewrite — including extracting external URLs from HTML-escaped entry bodies. Score filtering survives only for HN; for Reddit, the curated `top?t=day` listing replaces it. Lesson repeated from M1: assumptions about third-party APIs only die on contact with the real service; the probe-first approach (test endpoints with a 10-line script before rewriting the fetcher) was cheap and decisive.
 - Milestone 1 (2026-06-11): Achieved exactly what the Purpose's items 1 and 3 describe for the RSS/arXiv sources — a runnable `uv run python -m infobot --dry-run --no-llm` that prints categorized new items and prints zeros on an immediate re-run. Deviation from plan: added a `max_entries_per_feed` cap (not in the original design) after discovering archive-sized feeds; recorded in Surprises & Discoveries. Remaining toward the Purpose: HN/Reddit sources (M2), summaries (M3), actual posting (M4), and the cron (M5). Lesson: do a real network run early — both surprises (archive feeds, redirects) were invisible in fixture-based tests.
 
