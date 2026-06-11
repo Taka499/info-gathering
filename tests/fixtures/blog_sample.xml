@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Blog</title>
+    <link>https://example.com</link>
+    <description>An example blog.</description>
+    <item>
+      <title>Post One</title>
+      <link>https://Example.com/post-1?utm_source=rss&amp;utm_medium=feed</link>
+      <description>First post.</description>
+      <pubDate>Wed, 10 Jun 2026 12:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
