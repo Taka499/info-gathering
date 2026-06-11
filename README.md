@@ -1,5 +1,7 @@
 # infobot
 
+[![tests](https://github.com/Taka499/info-gathering/actions/workflows/test.yml/badge.svg)](https://github.com/Taka499/info-gathering/actions/workflows/test.yml)
+
 A self-hosted, zero-infrastructure news bot. Every 2 hours it gathers newly
 published items from sources you care about — arXiv categories, RSS/Atom
 feeds, Hacker News, Reddit — has Claude write a 2–3 sentence summary for each,
@@ -180,4 +182,9 @@ uv run --env-file .env pytest      # also runs the one live-API test
 
 Design history, decisions, and validation steps live in
 [`docs/plans/2026-06-11-info-gathering-bot.md`](docs/plans/2026-06-11-info-gathering-bot.md).
-Contributions follow Git-flow (`develop` → `main`).
+Contributions follow Git-flow (`develop` → `main`); the test suite runs on
+every PR.
+
+## License
+
+[MIT](LICENSE)
