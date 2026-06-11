@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>ArXiv Query: search_query=cat:cs.AI</title>
+  <entry>
+    <id>http://arxiv.org/abs/2406.01234v1</id>
+    <updated>2026-06-10T17:59:59Z</updated>
+    <published>2026-06-10T17:59:59Z</published>
+    <title>Scaling Laws for Imaginary Systems</title>
+    <summary>We study scaling laws in a family of imaginary systems and find them imaginary.</summary>
+    <link href="http://arxiv.org/abs/2406.01234v1" rel="alternate" type="text/html"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2406.05678v2</id>
+    <updated>2026-06-09T09:30:00Z</updated>
+    <published>2026-06-09T09:30:00Z</published>
+    <title>A Survey of Surveys</title>
+    <summary>We survey the surveys surveying surveys.</summary>
+    <link href="http://arxiv.org/abs/2406.05678v2" rel="alternate" type="text/html"/>
+  </entry>
+</feed>
