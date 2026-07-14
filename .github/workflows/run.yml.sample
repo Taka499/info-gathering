@@ -10,7 +10,7 @@ name: infobot
 
 on:
   schedule:
-    - cron: "17 */2 * * *"   # every 2 hours; off-the-hour to dodge GH's cron rush
+    - cron: "17 */6 * * *"   # every 6 hours; off-the-hour to dodge GH's cron rush
   workflow_dispatch: {}
 
 concurrency:
@@ -40,12 +40,10 @@ jobs:
         working-directory: code
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DISCORD_WEBHOOK_AI_PAPERS: ${{ secrets.DISCORD_WEBHOOK_AI_PAPERS }}
           DISCORD_WEBHOOK_AI_NEWS: ${{ secrets.DISCORD_WEBHOOK_AI_NEWS }}
           DISCORD_WEBHOOK_TECH_NEWS: ${{ secrets.DISCORD_WEBHOOK_TECH_NEWS }}
           # Slack is off at launch. To enable later: create Slack webhooks,
           # add the secrets, and uncomment -- no code changes needed.
-          # SLACK_WEBHOOK_AI_PAPERS: ${{ secrets.SLACK_WEBHOOK_AI_PAPERS }}
           # SLACK_WEBHOOK_AI_NEWS: ${{ secrets.SLACK_WEBHOOK_AI_NEWS }}
           # SLACK_WEBHOOK_TECH_NEWS: ${{ secrets.SLACK_WEBHOOK_TECH_NEWS }}
       - name: Commit state
